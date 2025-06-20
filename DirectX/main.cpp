@@ -16,6 +16,14 @@
 
 #include "system_timer.h"
 
+#include <dcomp.h>
+
+using Microsoft::WRL::ComPtr;
+
+ComPtr<IDCompositionDevice> m_dcompDevice;
+ComPtr<IDCompositionTarget> m_dcompTarget;
+ComPtr<IDCompositionVisual> m_dcompVisual;
+
 int APIENTRY WinMain(
     _In_ HINSTANCE hInstance,
     _In_opt_ HINSTANCE,
@@ -116,7 +124,7 @@ int APIENTRY WinMain(
                 Direct3D_Clear();
                 Sprite_Begin();
 
-                Sprite_Draw(texid_knight_winter, 0, 0, 128, 128);
+                Sprite_Draw(texid_knight_winter, 256, 256, 256, 256);
 
                 for (int i = 0; i < ids.size(); i++)
                 {

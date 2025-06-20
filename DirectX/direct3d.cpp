@@ -6,6 +6,13 @@
  */
 
 #include "direct3d.h"
+
+#include <dcomp.h>
+#pragma comment( lib, "dcomp" )
+
+#include <dxgi1_2.h>
+#include <wrl/client.h>
+
 #include "debug_ostream.h"
 
 #pragma comment(lib, "d3d11.lib")
@@ -17,12 +24,16 @@
 #pragma comment(lib, "DirectXTex_Release.lib")
 #endif
 
+using Microsoft::WRL::ComPtr;
+
 /* 各種インターフェース */
-static ID3D11Device* g_pDevice = nullptr;
+static ComPtr<ID3D11Device> g_pDevice = nullptr;
 static ID3D11DeviceContext* g_pDeviceContext = nullptr;
-static IDXGISwapChain* g_pSwapChain = nullptr;
+static ComPtr<IDXGISwapChain1> g_pSwapChain = nullptr;
 static ID3D11BlendState* g_pBlendStateMultiply = nullptr;
 static ID3D11DepthStencilState* g_pDepthStencilStateDepthDisable = nullptr;
+
+ComPtr<IDXGIDevice> dxgiDevice;
 
 /* バックバッファ関連 */
 static ID3D11RenderTargetView* g_pRenderTargetView = nullptr;
@@ -32,6 +43,11 @@ static D3D11_TEXTURE2D_DESC g_BackBufferDesc{};
 
 static D3D11_VIEWPORT g_Viewport{};
 
+ComPtr<IDCompositionDevice> g_dcompDevice;
+ComPtr<IDCompositionTarget> g_dcompTarget;
+ComPtr<IDCompositionVisual> g_dcompVisual;
+
+
 static bool configureBackBuffer(); // バックバッファの設定・生成
 static void releaseBackBuffer(); // バックバッファの解放
 
@@ -39,19 +55,24 @@ static void releaseBackBuffer(); // バックバッファの解放
 bool Direct3D_Initialize(HWND hWnd)
 {
     /* デバイス、スワップチェーン、コンテキスト生成 */
-    DXGI_SWAP_CHAIN_DESC swap_chain_desc{};
-    swap_chain_desc.Windowed = TRUE; // full screen
+    DXGI_SWAP_CHAIN_DESC1 swap_chain_desc{};
+    // swap_chain_desc.Windowed = TRUE; // full screen
     swap_chain_desc.BufferCount = 2; // 裏画面が何個用意する
     // swap_chain_desc.BufferDesc.Width = 0;
     // swap_chain_desc.BufferDesc.Height = 0;
     // ⇒ ウィンドウサイズに合わせて自動的に設定される
-    swap_chain_desc.BufferDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM; // 色のformat
+    swap_chain_desc.Width = 1600;
+    swap_chain_desc.Height = 900;
+    swap_chain_desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM; // 色のformat
     swap_chain_desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT; // 何に使う、ここは絵を各場所で使う
     swap_chain_desc.SampleDesc.Count = 1;
     swap_chain_desc.SampleDesc.Quality = 0;
+    swap_chain_desc.Scaling = DXGI_SCALING_STRETCH;
     swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL;
+    swap_chain_desc.AlphaMode = DXGI_ALPHA_MODE_PREMULTIPLIED;
+
     // swap_chain_desc.SwapEffect = DXGI_SWAP_EFFECT_DISCARD; // 0: 垂直同期なし
-    swap_chain_desc.OutputWindow = hWnd;
+    // swap_chain_desc.OutputWindow = hWnd;
 
     /*
     IDXGIFactory1* pFactory;
@@ -77,7 +98,7 @@ bool Direct3D_Initialize(HWND hWnd)
 
     D3D_FEATURE_LEVEL feature_level = D3D_FEATURE_LEVEL_11_0;
 
-    HRESULT hr = D3D11CreateDeviceAndSwapChain(
+    HRESULT hr = D3D11CreateDevice(
         nullptr,
         D3D_DRIVER_TYPE_HARDWARE,
         nullptr,
@@ -85,18 +106,61 @@ bool Direct3D_Initialize(HWND hWnd)
         levels,
         ARRAYSIZE(levels),
         D3D11_SDK_VERSION,
-        &swap_chain_desc,
-        &g_pSwapChain, // 大事
         &g_pDevice, // 大事
         &feature_level,
         &g_pDeviceContext // 大事
     );
 
-    if (FAILED(hr))
+    if (SUCCEEDED(hr))
+    {
+        hr = g_pDevice.As(&dxgiDevice);
+    }
+    else
     {
         MessageBox(hWnd, "Direct3Dの初期化に失敗しました", "エラー", MB_OK);
         return false;
     }
+
+    // ComPtr<IDXGIFactory2> dxgiFactory;
+    // hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
+    //
+    // hr = dxgiFactory->CreateSwapChainForComposition(
+    //     g_pDevice.Get(),
+    //     &swap_chain_desc,
+    //     nullptr,
+    //     &g_pSwapChain
+    // );
+
+    
+    ComPtr<IDXGIFactory2> dxgiFactory;
+    hr = CreateDXGIFactory1(IID_PPV_ARGS(&dxgiFactory));
+
+    hr = dxgiFactory->CreateSwapChainForComposition(
+        g_pDevice.Get(),
+        &swap_chain_desc,
+        nullptr,
+        &g_pSwapChain
+    );
+
+    if (FAILED(hr))
+    {
+        MessageBox(hWnd, "SwapChainの初期化に失敗しました", "エラー", MB_OK);
+        return false;
+    }
+
+    hr = DCompositionCreateDevice(
+        dxgiDevice.Get(),
+        __uuidof(IDCompositionDevice),
+        reinterpret_cast<void**>(g_dcompDevice.GetAddressOf())
+    );
+
+    hr = g_dcompDevice->CreateTargetForHwnd(hWnd, TRUE, &g_dcompTarget);
+
+    hr = g_dcompDevice->CreateVisual(&g_dcompVisual);
+    hr = g_dcompVisual->SetContent(g_pSwapChain.Get());
+    hr = g_dcompTarget->SetRoot(g_dcompVisual.Get());
+    hr = g_dcompDevice->Commit();
+
 
     if (!configureBackBuffer())
     {
@@ -121,8 +185,8 @@ bool Direct3D_Initialize(HWND hWnd)
     // SrcRGB * SrcBlend + DestRGB * (1 - DestBlend)
 
     // A
-    bd.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_ONE;
-    bd.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_ZERO;
+    bd.RenderTarget[0].SrcBlendAlpha = D3D11_BLEND_SRC_ALPHA;
+    bd.RenderTarget[0].DestBlendAlpha = D3D11_BLEND_INV_SRC_ALPHA;
     bd.RenderTarget[0].BlendOpAlpha = D3D11_BLEND_OP_ADD;
     // SrcBlendAlpha * 1 + DestBlendAlpha * 0
 
@@ -159,9 +223,15 @@ void Direct3D_Finalize()
 
     SAFE_RELEASE(g_pDepthStencilStateDepthDisable);
     SAFE_RELEASE(g_pBlendStateMultiply);
-    SAFE_RELEASE(g_pSwapChain);
+    // SAFE_RELEASE(g_pSwapChain);
     SAFE_RELEASE(g_pDeviceContext);
-    SAFE_RELEASE(g_pDevice);
+
+    // SAFE_RELEASE(g_pDevice);
+    g_pSwapChain.Reset();
+    dxgiDevice.Reset();
+    g_pDevice.Reset();
+
+
     // if (g_pSwapChain)
     // {
     //     g_pSwapChain->Release();
@@ -183,7 +253,7 @@ void Direct3D_Finalize()
 
 void Direct3D_Clear()
 {
-    float clear_color[4] = {0.2f, 0.4f, 0.8f, 1.0f};
+    float clear_color[4] = {0.0f, 0.3f, 0.0f, 0.3f};
     g_pDeviceContext->ClearRenderTargetView(g_pRenderTargetView, clear_color);
     g_pDeviceContext->ClearDepthStencilView(g_pDepthStencilView, D3D11_CLEAR_DEPTH, 1.0f, 0);
 
@@ -197,6 +267,10 @@ void Direct3D_Present()
     // 貯まった描画コマンドをグラフィックに転送
     // 0: 垂直同期なし
     g_pSwapChain->Present(1, 0);
+    if (g_dcompDevice)
+    {
+        g_dcompDevice->Commit();
+    }
 }
 
 unsigned int Direct3D_GetBackBufferWidth()
@@ -211,7 +285,7 @@ unsigned int Direct3D_GetBackBufferHeight()
 
 ID3D11Device* Direct3D_GetDevice()
 {
-    return g_pDevice;
+    return g_pDevice.Get();
 }
 
 ID3D11DeviceContext* Direct3D_GetContext()

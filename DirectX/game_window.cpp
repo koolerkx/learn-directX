@@ -50,7 +50,8 @@ HWND GameWindow_Create(_In_ HINSTANCE hInstance)
     const int WINDOW_X = std::max(0, (desktop_width - WINDOW_WIDTH) / 2);
     const int WINDOW_Y = std::max(0, (desktop_height - WINDOW_HEIGHT) / 2);
 
-    HWND hWnd = CreateWindow(
+    HWND hWnd = CreateWindowEx(
+        WS_EX_NOREDIRECTIONBITMAP,
         WINDOW_CLASS,
         TITLE,
         style, //　Window Style Flag
