@@ -22,6 +22,7 @@ static ID3D11Device* g_pDevice = nullptr;
 static ID3D11DeviceContext* g_pDeviceContext = nullptr;
 static IDXGISwapChain* g_pSwapChain = nullptr;
 static ID3D11BlendState* g_pBlendStateMultiply = nullptr;
+static ID3D11BlendState* g_pBlendStateAdd = nullptr;
 static ID3D11DepthStencilState* g_pDepthStencilStateDepthDisable = nullptr;
 
 /* バックバッファ関連 */
@@ -112,6 +113,7 @@ bool Direct3D_Initialize(HWND hWnd)
     bd.IndependentBlendEnable = FALSE;
     bd.RenderTarget[0].BlendEnable = TRUE; // αブレンドするしない
 
+#pragma region 透明合成
     // src ... ソース（今から描く絵（色）） dest　...　すでに絵描かれた絵（色）
 
     // RGB
@@ -129,10 +131,16 @@ bool Direct3D_Initialize(HWND hWnd)
     bd.RenderTarget[0].RenderTargetWriteMask = D3D11_COLOR_WRITE_ENABLE_ALL;
 
     g_pDevice->CreateBlendState(&bd, &g_pBlendStateMultiply);
+#pragma endregion
+#pragma region 加算合成
+    // src ... ソース（今から描く絵（色）） dest　...　すでに絵描かれた絵（色）
 
-    // HACK: 3Dの場合、関数化のほうがいい
-    float blend_factor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-    g_pDeviceContext->OMSetBlendState(g_pBlendStateMultiply, blend_factor, 0xffffffff);
+    // RGB
+    bd.RenderTarget[0].DestBlend = D3D11_BLEND_ONE;
+    g_pDevice->CreateBlendState(&bd, &g_pBlendStateAdd);
+#pragma endregion
+
+    Direct3D_SetAlphaBlendTransparent();
 
     // 深度ステンシルステート設定
     D3D11_DEPTH_STENCIL_DESC dsd = {};
@@ -320,4 +328,17 @@ void releaseBackBuffer()
     //     g_pDepthStencilView->Release();
     //     g_pDepthStencilView = nullptr;
     // }
+}
+
+
+void Direct3D_SetAlphaBlendTransparent()
+{
+    float blend_factor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    g_pDeviceContext->OMSetBlendState(g_pBlendStateMultiply, blend_factor, 0xffffffff);
+}
+
+void Direct3D_SetAlphaBlendAdd()
+{
+    float blend_factor[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    g_pDeviceContext->OMSetBlendState(g_pBlendStateAdd, blend_factor, 0xffffffff);
 }
