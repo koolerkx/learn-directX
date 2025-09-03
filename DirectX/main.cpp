@@ -199,7 +199,9 @@ int APIENTRY WinMain(
                 
                 Mouse_State ms{};
                 Mouse_GetState(&ms);
+                Direct3D_SetAlphaBlendAdd();
                 SpriteAnim_Draw(ids[3], static_cast<float>(ms.x - 128 / 2), static_cast<float>(ms.y - 128 / 2), 128, 128);
+                Direct3D_SetAlphaBlendTransparent();
                 // Mouse_SetVisible(false);
 
                 SpriteAnim_Draw(playIdRun, x, static_cast<float>(32 + 128 + 32) + y, 140.0f, 200.0f);
